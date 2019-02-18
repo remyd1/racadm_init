@@ -120,16 +120,33 @@ case $2 in
   ;;
   sethostname)
     if [ -n "$3" ]; then
-      $RACADM -r $ip -u $user -p $password set system.ServerOS.HostName $3
+      if [ "$version" == "v6" ];then
+        $RACADM -r $ip -u $user -p $password config -g cfgLanNetworking -o cfgDNSRacName $3
+      else
+        $RACADM -r $ip -u $user -p $password set system.ServerOS.HostName $3
+      fi
     else
       echo -e "$usage"
+      echo ""
       echo "You need to specify a hostname... Exiting..."
       exit 1
     fi
   ;;
   changeip)
-    echo "Sorry, it is in my TO DO list..."
-    exit 0
+    if [[ $3 =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]] && [[ $4 =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]] && [[ $5 =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then
+      if [ "$version" == "v6" ];then
+        $RACADM -r $ip -u $user -p $password config -g cfgLanNetworking -o cfgNicIpAddress $3
+        $RACADM -r $ip -u $user -p $password config -g cfgLanNetworking -o cfgNicNetmask $4
+        $RACADM -r $ip -u $user -p $password config -g cfgLanNetworking -o cfgNicGateway $5
+      else
+        $RACADM -r $ip -u $user -p $password setniccfg –s $3 $4 $5
+      fi
+    else
+      echo -e $usage
+      echo ""
+      echo "New IP or netmask or gateway bad format."
+      exit 1
+    fi
   ;;
   setrootpw)
     if [ -n "$3" ]; then
@@ -137,6 +154,7 @@ case $2 in
       $RACADM -r $ip -u $user -p $password set iDRAC.Users.2.Password $3
     else
       echo -e "$usage"
+      echo ""
       echo "You need to specify a password... Exiting..."
       exit 1
     fi

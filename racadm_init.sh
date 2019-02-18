@@ -203,9 +203,9 @@ case $2 in
       $RACADM -r $ip -u $user -p $password eventfilters set -c idrac.alert.all -a none -n snmp
       $RACADM -r $ip -u $user -p $password eventfilters set -c idrac.alert.critical -a none -n snmp,email
     fi
-    # verif
+    # checking emails
     $RACADM -r $ip -u $user -p $password getconfig -g cfgEmailAlert -i 1
-    #Test envoi de mail
+    echo "Trying to send an email..."
     $RACADM -r $ip -u $user -p $password testemail -i 1
 
     # NTP

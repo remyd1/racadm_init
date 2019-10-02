@@ -1,14 +1,18 @@
 #!/bin/bash
 
+# version 0.0.2
+# author Rémy Dernat, ISE-M UMR5554
+
 #for debug purpose, uncomment following
 #set -x
 
-usage="$0 IP.IP.IP.IP [fullinit|getinfos|changeip|setrootpw|adduser|getraclogs|sethostname] [<root pw>|<3 username password profile>|<hostname>|<ip mask gw>]
+usage="$0 IP.IP.IP.IP [fullinit|getinfos|changeip|setrootpw|adduser|getraclogs|sethostname|sendtestmail] [<root pw>|<3 username password profile>|<hostname>|<ip mask gw>]
     examples:
         $0 IP.IP.IP.IP setrootpw secret
         $0 IP.IP.IP.IP getinfos
         $0 IP.IP.IP.IP fullinit
         $0 IP.IP.IP.IP getraclogs
+        $0 IP.IP.IP.IP sendtestmail
         $0 IP.IP.IP.IP sethostname HOSTNAME.domain.ltd
         $0 IP.IP.IP.IP adduser 3 john johnsecret 0x000000C1
             for setting the value of profile, see https://www.dell.com/support/manuals/us/en/04/poweredge-fx2/cmcfx2fx2s13rg-v1/cfguseradminprivilege-readwrite?guid=guid-863f4d46-0927-4367-89fa-e87b150612e8&lang=en-us
@@ -25,7 +29,11 @@ source racadm_local.conf
 
 LIBSSLPATH=/usr/lib/x86_64-linux-gnu/libssl.so.1.0.0
 
-RACADMPATH=`which racadm`
+if [ -x /opt/dell/srvadmin/sbin/racadm ]; then
+  RACADMPATH=/opt/dell/srvadmin/sbin/racadm
+else
+  RACADMPATH=`which racadm`
+fi
 if [ -z "$RACADMPATH" ]; then
   echo "No racadm found... Exiting..."
   exit 1
@@ -87,6 +95,8 @@ retrieve_version() {
   echo "with iDrac version:" $version
 }
 
+retrieve_version
+
 check_user_id() {
     id=$1
     if [[ "$version" == "v9" || "$version" == "v6" || "$version" == "v8" ]]; then
@@ -95,70 +105,58 @@ check_user_id() {
         testid=$( $RACADM -r $ip -u $user -p $password get iDRAC.Users.$id.UserName | awk -F"=" '/UserName/ {print $2}' )
     fi
 }
+checkEMAIL() {
+    $RACADM -r $ip -u $user -p $password getconfig -g cfgEmailAlert -i 1
+}
+configureDNS() {
+    $RACADM -r $ip -u $user -p $password config -g cfgLanNetworking -o cfgDNSDomainName $dnsdomainname
+    #racadm -r $ip -u $user -p $password set iDRAC.NIC.DNSDomainName $dnsdomainname
+    $RACADM -r $ip -u $user -p $password config -g cfgLanNetworking -o cfgDNSServer1 $DNS1
+    $RACADM -r $ip -u $user -p $password config -g cfgLanNetworking -o cfgDNSServer2 $DNS2
+}
+configureEMAIL() {
+    # idrac6 ?
+    if [ "$version" == "v6" ];then
+      $RACADM -r $ip -u $user -p $password config -g cfgEmailAlert -o cfgEmailAlertEnable -i 1 1
+      $RACADM -r $ip -u $user -p $password config -g cfgEmailAlert -o cfgEmailAlertAddress -i 1 $contactmail
+    else
+      $RACADM -r $ip -u $user -p $password set idrac.snmp.agentenable 1
+      $RACADM -r $ip -u $user -p $password set iDRAC.EmailAlert.Enable.1 1
+      $RACADM -r $ip -u $user -p $password set iDRAC.EmailAlert.Address.1 $contactmail
+      $RACADM -r $ip -u $user -p $password eventfilters set -c idrac.alert.all -a none -n snmp
+      $RACADM -r $ip -u $user -p $password eventfilters set -c idrac.alert.critical -a none -n snmp,email
+    fi
+}
+configureNTP() {
+    case $version in
+      v6)
+        $RACADM -r $ip -u $user -p $password config -g cfgRemoteHosts -o cfgRhostsNtpEnable 1
+        $RACADM -r $ip -u $user -p $password config -g cfgRemoteHosts -o cfgRhostsNtpServer1 $NTP
+        ;;
+      v7|v8)
+        $RACADM -r $ip -u $user -p $password set idrac.time.1.Timezone $TimeZone
+        $RACADM -r $ip -u $user -p $password set idrac.ntpConfigGroup.1.NTPEnable Enabled
+        $RACADM -r $ip -u $user -p $password set idrac.ntpConfigGroup.1.NTP1 $NTP
+        ;;
+      v9)
+        $RACADM -r $ip -u $user -p $password set idrac.time.Timezone $TimeZone
+        $RACADM -r $ip -u $user -p $password set idrac.ntpConfigGroup.NTPEnable Enabled
+        $RACADM -r $ip -u $user -p $password set idrac.ntpConfigGroup.NTP1 $NTP
+        ;;
+    esac
+}
+configureSMTP() {
+    $RACADM -r $ip -u $user -p $password config -g cfgRemoteHosts -o cfgRhostsSmtpServerIpAddr $SMTP
+}
+sendtestEMAIL() {
+    echo "Trying to send an email..."
+    $RACADM -r $ip -u $user -p $password testemail -i 1
+}
 
 
-retrieve_version
 
+## MAIN parsing arguments
 case $2 in
-  getinfos)
-    echo "###################### iDrac versions #####################"
-    $RACADM -r $ip -u $user -p $password getconfig -g idracinfo
-    echo "###########################################################"
-    echo ""
-    echo "#################### iDrac getsysinfos ###################"
-    $RACADM -r $ip -u $user -p $password getsysinfo
-    #$RACADM -r $ip -u $user -p $password getniccfg
-    echo "##########################################################"
-    echo ""
-    echo "############### iDrac RemoteHosts Config #################"
-    $RACADM -r $ip -u $user -p $password getconfig -g cfgRemoteHosts
-    echo "##########################################################"
-    echo ""
-  ;;
-  getraclogs)
-    $RACADM -r $ip -u $user -p $password getraclog -c 100
-  ;;
-  sethostname)
-    if [ -n "$3" ]; then
-      if [ "$version" == "v6" ];then
-        $RACADM -r $ip -u $user -p $password config -g cfgLanNetworking -o cfgDNSRacName $3
-      else
-        $RACADM -r $ip -u $user -p $password set system.ServerOS.HostName $3
-      fi
-    else
-      echo -e "$usage"
-      echo ""
-      echo "You need to specify a hostname... Exiting..."
-      exit 1
-    fi
-  ;;
-  changeip)
-    if [[ $3 =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]] && [[ $4 =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]] && [[ $5 =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then
-      if [ "$version" == "v6" ];then
-        $RACADM -r $ip -u $user -p $password config -g cfgLanNetworking -o cfgNicIpAddress $3
-        $RACADM -r $ip -u $user -p $password config -g cfgLanNetworking -o cfgNicNetmask $4
-        $RACADM -r $ip -u $user -p $password config -g cfgLanNetworking -o cfgNicGateway $5
-      else
-        $RACADM -r $ip -u $user -p $password setniccfg –s $3 $4 $5
-      fi
-    else
-      echo -e $usage
-      echo ""
-      echo "New IP or netmask or gateway bad format."
-      exit 1
-    fi
-  ;;
-  setrootpw)
-    if [ -n "$3" ]; then
-      # root has userid set to '2' by default. see https://lonesysadmin.net/2015/08/13/interesting-dell-idrac-tricks/
-      $RACADM -r $ip -u $user -p $password set iDRAC.Users.2.Password $3
-    else
-      echo -e "$usage"
-      echo ""
-      echo "You need to specify a password... Exiting..."
-      exit 1
-    fi
-  ;;
   adduser)
     if [ $# -ne 6 ]; then
         echo $usage
@@ -182,50 +180,77 @@ case $2 in
         "
     fi
   ;;
-  fullinit)
-    #DNS
-    $RACADM -r $ip -u $user -p $password config -g cfgLanNetworking -o cfgDNSDomainName $dnsdomainname
-    #racadm -r $ip -u $user -p $password set iDRAC.NIC.DNSDomainName $dnsdomainname
-    $RACADM -r $ip -u $user -p $password config -g cfgLanNetworking -o cfgDNSServer1 $DNS1
-    $RACADM -r $ip -u $user -p $password config -g cfgLanNetworking -o cfgDNSServer2 $DNS2
-
-    #Config SMTP
-    $RACADM -r $ip -u $user -p $password config -g cfgRemoteHosts -o cfgRhostsSmtpServerIpAddr $SMTP
-
-    # idrac6 ?
-    if [ "$version" == "v6" ];then
-      $RACADM -r $ip -u $user -p $password config -g cfgEmailAlert -o cfgEmailAlertEnable -i 1 1
-      $RACADM -r $ip -u $user -p $password config -g cfgEmailAlert -o cfgEmailAlertAddress -i 1 $contactmail
+  changeip)
+    if [[ $3 =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]] && [[ $4 =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]] && [[ $5 =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then
+      if [ "$version" == "v6" ];then
+        $RACADM -r $ip -u $user -p $password config -g cfgLanNetworking -o cfgNicIpAddress $3
+        $RACADM -r $ip -u $user -p $password config -g cfgLanNetworking -o cfgNicNetmask $4
+        $RACADM -r $ip -u $user -p $password config -g cfgLanNetworking -o cfgNicGateway $5
+      else
+        $RACADM -r $ip -u $user -p $password setniccfg –s $3 $4 $5
+      fi
     else
-      $RACADM -r $ip -u $user -p $password set idrac.snmp.agentenable 1
-      $RACADM -r $ip -u $user -p $password set iDRAC.EmailAlert.Enable.1 1
-      $RACADM -r $ip -u $user -p $password set iDRAC.EmailAlert.Address.1 $contactmail
-      $RACADM -r $ip -u $user -p $password eventfilters set -c idrac.alert.all -a none -n snmp
-      $RACADM -r $ip -u $user -p $password eventfilters set -c idrac.alert.critical -a none -n snmp,email
+      echo -e $usage
+      echo ""
+      echo "New IP or netmask or gateway bad format."
+      exit 1
     fi
-    # checking emails
-    $RACADM -r $ip -u $user -p $password getconfig -g cfgEmailAlert -i 1
-    echo "Trying to send an email..."
-    $RACADM -r $ip -u $user -p $password testemail -i 1
+  ;;
+  fullinit)
+    configureDNS
+    configureSMTP
+    configureEMAIL
+    checkEMAIL
+    sendtestEMAIL
 
-    # NTP
     echo "Configuring NTP..."
-    case $version in
-      v6)
-        $RACADM -r $ip -u $user -p $password config -g cfgRemoteHosts -o cfgRhostsNtpEnable 1
-        $RACADM -r $ip -u $user -p $password config -g cfgRemoteHosts -o cfgRhostsNtpServer1 $NTP
-        ;;
-      v7|v8)
-        $RACADM -r $ip -u $user -p $password set idrac.time.1.Timezone $TimeZone
-        $RACADM -r $ip -u $user -p $password set idrac.ntpConfigGroup.1.NTPEnable Enabled
-        $RACADM -r $ip -u $user -p $password set idrac.ntpConfigGroup.1.NTP1 $NTP
-        ;;
-      v9)
-        $RACADM -r $ip -u $user -p $password set idrac.time.Timezone $TimeZone
-        $RACADM -r $ip -u $user -p $password set idrac.ntpConfigGroup.NTPEnable Enabled
-        $RACADM -r $ip -u $user -p $password set idrac.ntpConfigGroup.NTP1 $NTP
-        ;;
-    esac
+    configureNTP
+  ;;
+  getinfos)
+    echo "###################### iDrac versions #####################"
+    $RACADM -r $ip -u $user -p $password getconfig -g idracinfo
+    echo "###########################################################"
+    echo ""
+    echo "#################### iDrac getsysinfos ###################"
+    $RACADM -r $ip -u $user -p $password getsysinfo
+    #$RACADM -r $ip -u $user -p $password getniccfg
+    echo "##########################################################"
+    echo ""
+    echo "############### iDrac RemoteHosts Config #################"
+    $RACADM -r $ip -u $user -p $password getconfig -g cfgRemoteHosts
+    echo "##########################################################"
+    echo ""
+  ;;
+  getraclogs)
+    $RACADM -r $ip -u $user -p $password getraclog -c 100
+  ;;
+  sendtestmail)
+    sendtestEMAIL
+  ;;
+  sethostname)
+    if [ -n "$3" ]; then
+      if [ "$version" == "v6" ];then
+        $RACADM -r $ip -u $user -p $password config -g cfgLanNetworking -o cfgDNSRacName $3
+      else
+        $RACADM -r $ip -u $user -p $password set system.ServerOS.HostName $3
+      fi
+    else
+      echo -e "$usage"
+      echo ""
+      echo "You need to specify a hostname... Exiting..."
+      exit 1
+    fi
+  ;;
+  setrootpw)
+    if [ -n "$3" ]; then
+      # root has userid set to '2' by default. see https://lonesysadmin.net/2015/08/13/interesting-dell-idrac-tricks/
+      $RACADM -r $ip -u $user -p $password set iDRAC.Users.2.Password $3
+    else
+      echo -e "$usage"
+      echo ""
+      echo "You need to specify a password... Exiting..."
+      exit 1
+    fi
   ;;
   *)
     echo -e "$usage"

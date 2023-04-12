@@ -26,7 +26,7 @@ usage="$0 IP.IP.IP.IP [fullinit|getinfos|changeip|setrootpw|adduser|getraclogs|s
 # ref. v9: https://topics-cdn.dell.com/pdf/idrac9-lifecycle-controller-v3151515_users-guide_en-us.pdf
 
 if [ -f /etc/racadm_local.conf ]; then
-  /etc/racadm_local.conf
+  source /etc/racadm_local.conf
 elif [ -f racadm_local.conf ]; then
   source racadm_local.conf
 fi

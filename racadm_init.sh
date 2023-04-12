@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# version 0.0.2
+# version 0.0.3
 # author Rémy Dernat, ISE-M UMR5554
 
 #for debug purpose, uncomment following
@@ -25,14 +25,18 @@ usage="$0 IP.IP.IP.IP [fullinit|getinfos|changeip|setrootpw|adduser|getraclogs|s
 # ref. v8: https://topics-cdn.dell.com/pdf/integrated-dell-remote-access-cntrllr-8-with-lifecycle-controller-v2.00.00.00_reference-guide_en-us.pdf
 # ref. v9: https://topics-cdn.dell.com/pdf/idrac9-lifecycle-controller-v3151515_users-guide_en-us.pdf
 
-source racadm_local.conf
+if [ -f /etc/racadm_local.conf ]; then
+  /etc/racadm_local.conf
+elif [ -f racadm_local.conf ]; then
+  source racadm_local.conf
+fi
 
 LIBSSLPATH=/usr/lib/x86_64-linux-gnu/libssl.so.1.0.0
 
 if [ -x /opt/dell/srvadmin/sbin/racadm ]; then
   RACADMPATH=/opt/dell/srvadmin/sbin/racadm
 else
-  RACADMPATH=`which racadm`
+  RACADMPATH=`command -v racadm`
 fi
 if [ -z "$RACADMPATH" ]; then
   echo "No racadm found... Exiting..."
